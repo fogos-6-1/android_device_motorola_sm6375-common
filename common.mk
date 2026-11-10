@@ -157,6 +157,9 @@ $(foreach f,$(wildcard $(LOCAL_PATH)/rootdir/etc/init/*.rc),\
 PRODUCT_COPY_FILES += \
     $(LOCAL_PATH)/recovery/root/init.recovery.qcom.rc:recovery/root/init.recovery.qcom.rc
 
+# Dolby
+$(call inherit-product, hardware/dolby/dolby.mk)
+
 # IPACM
 PRODUCT_PACKAGES += \
     ipacm \
