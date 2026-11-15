@@ -87,11 +87,48 @@ blob_fixups: blob_fixups_user_type = {
         .replace_needed('libtinyxml2.so', 'libtinyxml2-v34.so'),
     ('vendor/bin/qcc-vendor', 'vendor/bin/xtra-daemon', 'vendor/lib64/libqcc_sdk.so'): blob_fixup()
         .add_needed('libbinder_shim.so'),
-    'vendor/lib64/libqcodec2_core.so': blob_fixup()
-        .add_needed('libcodec2_shim.so'),
     'vendor/etc/seccomp_policy/qcrilnr@2.0.policy': blob_fixup()
         .add_line_if_missing('getppid: 1')
         .add_line_if_missing('uname: 1'),
+    # debuggerd's in-process dump needs these; without them any crash or
+    # backtrace request (bugreport) kills the Codec2 HAL with SIGSYS.
+    'vendor/etc/seccomp_policy/codec2.vendor.ext-arm64.policy': blob_fixup()
+        .add_line_if_missing('getppid: 1')
+        .add_line_if_missing('setsockopt: 1')
+        .add_line_if_missing('uname: 1'),
+    # Load the veux Codec2 store through libqcodec2_shim, which adds the
+    # DMA-BUF heap usage parameter the ION-era store lacks.
+    'vendor/bin/hw/vendor.qti.media.c2@1.0-service': blob_fixup()
+        .binary_regex_replace(rb'libqcodec2_core\.so', b'libqcodec2_shim.so'),
+    # The poll thread's frame rate estimate subtracts the previous output
+    # timestamp under a ubsan trap, so an EOS or post-seek buffer with an
+    # earlier timestamp aborts media.hwcodec. Clamp the delta to 0 instead,
+    # which the estimate already treats as unknown.
+    'vendor/lib64/libqcodec2_v4l2codec.so': blob_fixup()
+        .sig_replace(
+            '6c b9 40 f9 5f 01 00 71 ea 17 9f 1a cc 02 0c eb 43 8b 00 54',
+            '6c b9 40 f9 5f 01 00 71 ea 17 9f 1a cc 02 0c eb ec 33 8c 9a')
+        .sig_replace(
+            '89 05 00 34 0a b9 40 f9 c9 02 0a eb a3 84 00 54',
+            '89 05 00 34 0a b9 40 f9 c9 02 0a eb e9 33 89 9a'),
+    # Advertise portrait sizes within the 1080p macroblock budget the legacy
+    # driver enforces. Screen recording sizes itself from the decoder and
+    # then encodes at that size, so both need it to keep the panel
+    # resolution instead of scaling to 1088 lines.
+    'vendor/etc/media_codecs_blair.xml': blob_fixup()
+        .regex_replace(
+            r'(<MediaCodec name="c2\.qti\.(?:avc|hevc)\.encoder" type="[^"]+">\n'
+            r'(\s*)<Alias [^\n]*\n)'
+            r'\s*<Limit name="size" min="128x128" max="1920x1088" />\n',
+            r'\1\2<Limit name="size" min="128x128" max="1920x1920" />\n'
+            r'\2<Limit name="block-count" range="64-8160" />\n')
+        .regex_replace(
+            r'(<MediaCodec name="c2\.qti\.(?:(?:avc|hevc)\.decoder(?:\.low_latency)?'
+            r'|vp9\.decoder)" type="[^"]+" ?>\n'
+            r'(\s*)<Alias [^\n]*\n)'
+            r'\s*<Limit name="size" min="96x96" max="1920x1088" />\n',
+            r'\1\2<Limit name="size" min="96x96" max="1920x1920" />\n'
+            r'\2<Limit name="block-count" range="36-8160" />\n'),
     'vendor/lib64/libsensorndkbridge.so': blob_fixup()
         .replace_needed('android.hardware.sensors-V2-ndk.so', 'android.hardware.sensors-V3-ndk.so'),
     'system_ext/etc/permissions/moto-telephony.xml': blob_fixup()
@@ -116,6 +153,8 @@ if source in ('all', 'stock'):
     module.add_proprietary_file('proprietary-files.txt')
 if source in ('all', 'malmo'):
     module.add_proprietary_file('proprietary-files-malmo.txt')
+# Pinned veux Codec2 for the legacy video driver; kept on every extraction.
+module.add_proprietary_file('proprietary-files-veux.txt')
 
 if __name__ == '__main__':
     ExtractUtils.device(module).run()
